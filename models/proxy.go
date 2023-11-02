@@ -16,8 +16,8 @@ func (p *Proxy) ToString() string {
 	return p.Type + "://" + p.IP + ":" + p.Port
 }
 
-func NewProxy(ip, port, typeOf string) *Proxy {
-	return &Proxy{
+func NewProxy(ip, port, typeOf string) Proxy {
+	return Proxy{
 		IP:        ip,
 		Port:      port,
 		Type:      typeOf,

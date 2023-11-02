@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"github.com/domgolonka/proxy-scraper/models"
 	"github.com/domgolonka/proxy-scraper/providers"
+	aq "github.com/emirpasic/gods/queues/arrayqueue"
 	"github.com/patrickmn/go-cache"
 	"log/slog"
 	"math/big"
@@ -25,9 +26,9 @@ type ProxyGenerator struct { //nolint
 	lastValidProxy models.Proxy
 	cache          *cache.Cache
 	logger         *slog.Logger
+	queue          *aq.Queue
 	VerifyFn       Verify
 	providers      []Provider
-	proxies        []*models.Proxy
 	proxy          chan models.Proxy
 	job            chan models.Proxy
 }
@@ -48,8 +49,6 @@ func (p *ProxyGenerator) AddProvider(provider Provider) {
 }
 
 func shuffle(vals []models.Proxy) {
-
-	//r := rand.New(rand.NewSource(time.Now().Unix())) //nolint
 	for len(vals) > 0 {
 		n := len(vals)
 		nBig, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
@@ -63,7 +62,16 @@ func shuffle(vals []models.Proxy) {
 }
 
 func (p *ProxyGenerator) createOrIgnore(ip, port, ptype string) {
-	p.proxies = append(p.proxies, models.NewProxy(ip, port, ptype))
+	p.queue.Enqueue(models.NewProxy(ip, port, ptype))
+	// todo: Unique
+}
+func (p *ProxyGenerator) GetProxies() []models.Proxy {
+	val := p.queue.Values()
+	proxies := make([]models.Proxy, 0, len(val))
+	for _, s := range val {
+		proxies = append(proxies, s.(models.Proxy))
+	}
+	return proxies
 }
 
 func (p *ProxyGenerator) load() {
@@ -78,8 +86,6 @@ func (p *ProxyGenerator) load() {
 			continue
 		}
 
-		// p.logger.Println(provider.Name(), len(ips))
-
 		usedProxy.Range(func(key, value interface{}) bool {
 			if value.(int) != time.Now().Hour() {
 				usedProxy.Delete(key)
@@ -87,7 +93,6 @@ func (p *ProxyGenerator) load() {
 			return true
 		})
 
-		// p.logger.Debugf("provider %s found ips %d", provider.Name(), len(ips))
 		shuffle(ips)
 		for _, proxy := range ips {
 			p.createOrIgnore(proxy.IP, proxy.Port, proxy.Type)
@@ -138,16 +143,20 @@ func (p *ProxyGenerator) worker() {
 	}
 }
 
-func (p *ProxyGenerator) deleteOld(hour int) (bool, error) {
-	return p.store.DeleteOld(hour)
+func (p *ProxyGenerator) deleteOld(hour int) {
+	val := p.queue.Values()
+	for _, s := range val {
+		proxy := s.(models.Proxy)
+		if proxy.CreatedAt.Hour() < hour {
+			p.queue.Dequeue()
+		}
+	}
+	return
 }
 
 func (p *ProxyGenerator) Run(workers int, hours int) {
 	go func() {
-		_, err := instance.deleteOld(hours + 12)
-		if err != nil {
-			p.logger.Error(err.Error())
-		}
+		instance.deleteOld(hours + 12)
 	}()
 	go p.load()
 
@@ -156,16 +165,19 @@ func (p *ProxyGenerator) Run(workers int, hours int) {
 	}
 }
 
-func New(workers int, cacheminutes time.Duration, hours int, feedList []string) *ProxyGenerator {
+func New(workers int, cacheminutes time.Duration, hoursRun int, feedList []string) *ProxyGenerator {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	queue := aq.New()
 	once.Do(func() {
 		instance = &ProxyGenerator{
 			cache:    cache.New(cacheminutes*time.Minute, 5*time.Minute),
 			VerifyFn: verifyProxy,
 			proxy:    make(chan models.Proxy),
 			logger:   logger,
+			queue:    queue,
 			job:      make(chan models.Proxy, 100),
 		}
+
 		// add providers to generator
 		instance.AddProvider(providers.NewFreeProxyList())
 		instance.AddProvider(providers.NewXseoIn())
@@ -175,23 +187,8 @@ func New(workers int, cacheminutes time.Duration, hours int, feedList []string) 
 		instance.AddProvider(providers.NewCoolProxy())
 		instance.AddProvider(providers.NewPubProxy())
 		// run workers
-		go instance.Run(workers, hours)
+		go instance.Run(workers, hoursRun)
 
 	})
 	return instance
-}
-
-func unique(slice []string) []string {
-	// create a map with all the values as key
-	uniqMap := make(map[string]struct{})
-	for _, v := range slice {
-		uniqMap[v] = struct{}{}
-	}
-
-	// turn the map keys into a slice
-	uniqSlice := make([]string, 0, len(uniqMap))
-	for v := range uniqMap {
-		uniqSlice = append(uniqSlice, v)
-	}
-	return uniqSlice
 }

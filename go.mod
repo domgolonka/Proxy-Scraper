@@ -4,8 +4,9 @@ go 1.21.3
 
 require (
 	github.com/antchfx/htmlquery v1.3.0
-	github.com/cardigann/go-cloudflare-scraper v0.0.0-20200425223932-91bd9b1006f2
+	github.com/emirpasic/gods v1.18.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
+	github.com/soluchok/go-cloudflare-scraper v0.0.0-20190117212330-ecf651d4e614
 )
 
 require (

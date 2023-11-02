@@ -19,13 +19,13 @@ type checkIP struct {
 func verifyProxy(logger *slog.Logger, proxy models.Proxy) bool {
 	req, err := http.NewRequest("GET", "https://api.ipify.org/?format=json", nil)
 	if err != nil {
-		logger.Error("cannot create new request for verify err: %s", err.Error())
+		logger.Error("cannot create new request for verify err: %s", slog.String("error", err.Error()))
 		return false
 	}
 
 	proxyURL, err := url.Parse(proxy.ToString())
 	if err != nil {
-		logger.Error("cannot parse proxy %q err: %s", proxy, err.Error())
+		logger.Error("cannot parse proxy %q err: %s", slog.Any("error", proxy), slog.String("error", err.Error()))
 		return false
 	}
 
@@ -38,13 +38,13 @@ func verifyProxy(logger *slog.Logger, proxy models.Proxy) bool {
 	}
 
 	if err != nil {
-		logger.Debug("cannot verify proxy %q err:%s", proxy, err.Error())
+		logger.Debug("cannot verify proxy %q err:%s", slog.Any("error", proxy), slog.String("error", err.Error()))
 		return false
 	}
 
 	var body bytes.Buffer
 	if _, err := io.Copy(&body, resp.Body); err != nil {
-		logger.Error("cannot copy resp.Body err: %s", err.Error())
+		logger.Error("cannot copy resp.Body err: %s", slog.String("error", err.Error()))
 		return false
 	}
 
@@ -54,7 +54,7 @@ func verifyProxy(logger *slog.Logger, proxy models.Proxy) bool {
 
 	var check checkIP
 	if err := json.Unmarshal(body.Bytes(), &check); err != nil {
-		logger.Error("%d cannot unmarshal %q to checkIP struct err: %s", resp.StatusCode, body.String(), err.Error())
+		logger.Error("%d cannot unmarshal %q to checkIP struct err: %s", slog.Int("status", resp.StatusCode), slog.String("body", body.String()), slog.String("error", err.Error()))
 		return false
 	}
 
